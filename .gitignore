@@ -1,3 +1,4 @@
+/simple.html
 #################
 ## Node.js
 #################
@@ -16,6 +17,7 @@ jsdoc
 dist
 build/temp
 build/es5
+build/typings
 coverage
 
 #################
@@ -61,6 +63,7 @@ local.properties
 *.suo
 *.user
 *.sln.docstates
+.vscode
 
 # Build results
 [Dd]ebug/
@@ -180,3 +183,4 @@ pip-log.txt
 
 # Mac crap
 .DS_Store
+build/typings/

@@ -28,26 +28,27 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-import Error from './vo/Error';
-import XHRLoader from './XHRLoader';
+import DashJSError from './vo/DashJSError';
+import HTTPLoader from './net/HTTPLoader';
 import {HTTPRequest} from './vo/metrics/HTTPRequest';
 import TextRequest from './vo/TextRequest';
 import EventBus from '../core/EventBus';
 import Events from '../core/events/Events';
 import FactoryMaker from '../core/FactoryMaker';
-
-const XLINK_LOADER_ERROR_LOADING_FAILURE = 1;
+import Errors from '../core/errors/Errors';
 
 function XlinkLoader(config) {
 
+    config = config || {};
     const RESOLVE_TO_ZERO = 'urn:mpeg:dash:resolve-to-zero:2013';
 
     const context  = this.context;
     const eventBus = EventBus(context).getInstance();
 
-    let xhrLoader = XHRLoader(context).create({
+    let httpLoader = HTTPLoader(context).create({
         errHandler: config.errHandler,
-        metricsModel: config.metricsModel,
+        dashMetrics: config.dashMetrics,
+        mediaPlayerModel: config.mediaPlayerModel,
         requestModifier: config.requestModifier
     });
 
@@ -63,9 +64,9 @@ function XlinkLoader(config) {
                 resolveObject: resolveObject,
                 error: content || resolveToZero ?
                     null :
-                    new Error(
-                        XLINK_LOADER_ERROR_LOADING_FAILURE,
-                        'Failed loading Xlink element: ' + url
+                    new DashJSError(
+                        Errors.XLINK_LOADER_LOADING_FAILURE_ERROR_CODE,
+                        Errors.XLINK_LOADER_LOADING_FAILURE_ERROR_MESSAGE + url
                     )
             });
         };
@@ -73,9 +74,9 @@ function XlinkLoader(config) {
         if (url === RESOLVE_TO_ZERO) {
             report(null, true);
         } else {
-            const request = new TextRequest(url, HTTPRequest.XLINK_TYPE);
+            const request = new TextRequest(url, HTTPRequest.XLINK_EXPANSION_TYPE);
 
-            xhrLoader.load({
+            httpLoader.load({
                 request: request,
                 success: function (data) {
                     report(data);
@@ -88,9 +89,9 @@ function XlinkLoader(config) {
     }
 
     function reset() {
-        if (xhrLoader) {
-            xhrLoader.abort();
-            xhrLoader = null;
+        if (httpLoader) {
+            httpLoader.abort();
+            httpLoader = null;
         }
     }
 
@@ -103,7 +104,4 @@ function XlinkLoader(config) {
 }
 
 XlinkLoader.__dashjs_factory_name = 'XlinkLoader';
-
-const factory = FactoryMaker.getClassFactory(XlinkLoader);
-factory.XLINK_LOADER_ERROR_LOADING_FAILURE = XLINK_LOADER_ERROR_LOADING_FAILURE;
-export default factory;
+export default FactoryMaker.getClassFactory(XlinkLoader);

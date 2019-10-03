@@ -29,44 +29,57 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 
-import PlaybackController from '../controllers/PlaybackController';
 import FactoryMaker from '../../core/FactoryMaker';
 import Debug from '../../core/Debug';
 import EventBus from '../../core/EventBus';
+import Events from '../../core/events/Events';
+import XHRLoader from '../net/XHRLoader';
 
 function EventController() {
 
     const MPD_RELOAD_SCHEME = 'urn:mpeg:dash:event:2012';
     const MPD_RELOAD_VALUE = 1;
 
-    let context = this.context;
-    let log = Debug(context).getInstance().log;
-    let eventBus = EventBus(context).getInstance();
+    const MPD_CALLBACK_SCHEME = 'urn:mpeg:dash:event:callback:2015';
+    const MPD_CALLBACK_VALUE = 1;
+
+    const context = this.context;
+    const eventBus = EventBus(context).getInstance();
 
     let instance,
+        logger,
         inlineEvents, // Holds all Inline Events not triggered yet
         inbandEvents, // Holds all Inband Events not triggered yet
         activeEvents, // Holds all Events currently running
         eventInterval, // variable holding the setInterval
         refreshDelay, // refreshTime for the setInterval
-        presentationTimeThreshold,
-        manifestModel,
+        lastEventTimerCall,
         manifestUpdater,
         playbackController,
         isStarted;
 
-    function initialize() {
+    function setup() {
+        logger = Debug(context).getInstance().getLogger(instance);
+        resetInitialSettings();
+    }
+
+    function resetInitialSettings() {
         isStarted = false;
         inlineEvents = {};
         inbandEvents = {};
         activeEvents = {};
         eventInterval = null;
         refreshDelay = 100;
-        presentationTimeThreshold = refreshDelay / 1000;
-        playbackController = PlaybackController(context).getInstance();
+        lastEventTimerCall = Date.now() / 1000;
     }
 
-    function clear() {
+    function checkConfig() {
+        if (!manifestUpdater || !playbackController) {
+            throw new Error('setConfig function has to be called previously');
+        }
+    }
+
+    function stop() {
         if (eventInterval !== null && isStarted) {
             clearInterval(eventInterval);
             eventInterval = null;
@@ -75,7 +88,8 @@ function EventController() {
     }
 
     function start() {
-        log('Start Event Controller');
+        checkConfig();
+        logger.debug('Start Event Controller');
         if (!isStarted && !isNaN(refreshDelay)) {
             isStarted = true;
             eventInterval = setInterval(onEventTimer, refreshDelay);
@@ -87,16 +101,18 @@ function EventController() {
      * @param {Array.<Object>} values
      */
     function addInlineEvents(values) {
+        checkConfig();
+
         inlineEvents = {};
 
         if (values) {
-            for (var i = 0; i < values.length; i++) {
-                var event = values[i];
+            for (let i = 0; i < values.length; i++) {
+                let event = values[i];
                 inlineEvents[event.id] = event;
-                log('Add inline event with id ' + event.id);
+                logger.debug('Add inline event with id ' + event.id);
             }
         }
-        log('Added ' + values.length + ' inline events');
+        logger.debug('Added ' + values.length + ' inline events');
     }
 
     /**
@@ -104,14 +120,39 @@ function EventController() {
      * @param {Array.<Object>} values
      */
     function addInbandEvents(values) {
-        for (var i = 0; i < values.length; i++) {
-            var event = values[i];
+        checkConfig();
+
+        for (let i = 0; i < values.length; i++) {
+            let event = values[i];
             if (!(event.id in inbandEvents)) {
+                if (event.eventStream.schemeIdUri === MPD_RELOAD_SCHEME && inbandEvents[event.id] === undefined) {
+                    handleManifestReloadEvent(event);
+                }
                 inbandEvents[event.id] = event;
-                log('Add inband event with id ' + event.id);
+                logger.debug('Add inband event with id ' + event.id);
             } else {
-                log('Repeated event with id ' + event.id);
+                logger.debug('Repeated event with id ' + event.id);
             }
+        }
+    }
+
+    function handleManifestReloadEvent(event) {
+        if (event.eventStream.value == MPD_RELOAD_VALUE) {
+            const timescale = event.eventStream.timescale || 1;
+            const validUntil = event.presentationTime / timescale;
+            let newDuration;
+            if (event.presentationTime == 0xFFFFFFFF) {//0xFF... means remaining duration unknown
+                newDuration = NaN;
+            } else {
+                newDuration = (event.presentationTime + event.duration) / timescale;
+            }
+            logger.info('Manifest validity changed: Valid until: ' + validUntil + '; remaining duration: ' + newDuration);
+            eventBus.trigger(Events.MANIFEST_VALIDITY_CHANGED, {
+                id: event.id,
+                validUntil: validUntil,
+                newDuration: newDuration,
+                newManifestValidAfter: NaN //event.message_data - this is an arraybuffer with a timestring in it, but not used yet
+            });
         }
     }
 
@@ -120,14 +161,14 @@ function EventController() {
      */
     function removeEvents() {
         if (activeEvents) {
-            var currentVideoTime = playbackController.getTime();
-            var eventIds = Object.keys(activeEvents);
+            let currentVideoTime = playbackController.getTime();
+            let eventIds = Object.keys(activeEvents);
 
-            for (var i = 0; i < eventIds.length; i++) {
-                var eventId = eventIds[i];
-                var curr = activeEvents[eventId];
+            for (let i = 0; i < eventIds.length; i++) {
+                let eventId = eventIds[i];
+                let curr = activeEvents[eventId];
                 if (curr !== null && (curr.duration + curr.presentationTime) / curr.eventStream.timescale < currentVideoTime) {
-                    log('Remove Event ' + eventId + ' at time ' + currentVideoTime);
+                    logger.debug('Remove Event ' + eventId + ' at time ' + currentVideoTime);
                     curr = null;
                     delete activeEvents[eventId];
                 }
@@ -139,42 +180,53 @@ function EventController() {
      * Iterate through the eventList and trigger/remove the events
      */
     function onEventTimer() {
-        triggerEvents(inbandEvents);
-        triggerEvents(inlineEvents);
+        var currentVideoTime = playbackController.getTime();
+        var presentationTimeThreshold = (currentVideoTime - lastEventTimerCall);
+        lastEventTimerCall = currentVideoTime;
+
+        triggerEvents(inbandEvents, presentationTimeThreshold, currentVideoTime);
+        triggerEvents(inlineEvents, presentationTimeThreshold, currentVideoTime);
         removeEvents();
     }
 
     function refreshManifest() {
-        var manifest = manifestModel.getValue();
-        var url = manifest.url;
-
-        if (manifest.hasOwnProperty('Location')) {
-            url = manifest.Location;
-        }
-        log('Refresh manifest @ ' + url);
-        manifestUpdater.getManifestLoader().load(url);
+        checkConfig();
+        manifestUpdater.refreshManifest();
     }
 
-    function triggerEvents(events) {
-        var currentVideoTime = playbackController.getTime();
+    function sendCallbackRequest(url) {
+        let loader = XHRLoader(context).create({});
+        loader.load({
+            method: 'get',
+            url: url,
+            request: {
+                responseType: 'arraybuffer'
+            }});
+    }
+
+    function triggerEvents(events, presentationTimeThreshold, currentVideoTime) {
         var presentationTime;
 
         /* == Trigger events that are ready == */
         if (events) {
-            var eventIds = Object.keys(events);
-            for (var i = 0; i < eventIds.length; i++) {
-                var eventId = eventIds[i];
-                var curr = events[eventId];
+            let eventIds = Object.keys(events);
+            for (let i = 0; i < eventIds.length; i++) {
+                let eventId = eventIds[i];
+                let curr = events[eventId];
 
                 if (curr !== undefined) {
                     presentationTime = curr.presentationTime / curr.eventStream.timescale;
                     if (presentationTime === 0 || (presentationTime <= currentVideoTime && presentationTime + presentationTimeThreshold > currentVideoTime)) {
-                        log('Start Event ' + eventId + ' at ' + currentVideoTime);
+                        logger.debug('Start Event ' + eventId + ' at ' + currentVideoTime);
                         if (curr.duration > 0) {
                             activeEvents[eventId] = curr;
                         }
                         if (curr.eventStream.schemeIdUri == MPD_RELOAD_SCHEME && curr.eventStream.value == MPD_RELOAD_VALUE) {
-                            refreshManifest();
+                            if (curr.duration !== 0 || curr.presentationTimeDelta !== 0) { //If both are set to zero, it indicates the media is over at this point. Don't reload the manifest.
+                                refreshManifest();
+                            }
+                        } else if (curr.eventStream.schemeIdUri == MPD_CALLBACK_SCHEME && curr.eventStream.value == MPD_CALLBACK_VALUE) {
+                            sendCallbackRequest(curr.messageData);
                         } else {
                             eventBus.trigger(curr.eventStream.schemeIdUri, {event: curr});
                         }
@@ -188,35 +240,33 @@ function EventController() {
     function setConfig(config) {
         if (!config) return;
 
-        if (config.manifestModel) {
-            manifestModel = config.manifestModel;
-        }
-
         if (config.manifestUpdater) {
             manifestUpdater = config.manifestUpdater;
+        }
+
+        if (config.playbackController) {
+            playbackController = config.playbackController;
         }
     }
 
     function reset() {
-        clear();
-        inlineEvents = null;
-        inbandEvents = null;
-        activeEvents = null;
-        playbackController = null;
+        stop();
+        resetInitialSettings();
     }
 
     instance = {
-        initialize: initialize,
         addInlineEvents: addInlineEvents,
         addInbandEvents: addInbandEvents,
-        clear: clear,
+        stop: stop,
         start: start,
         setConfig: setConfig,
         reset: reset
     };
 
+    setup();
+
     return instance;
 }
 
 EventController.__dashjs_factory_name = 'EventController';
-export default FactoryMaker.getSingletonFactory(EventController);
+export default FactoryMaker.getClassFactory(EventController);

@@ -1,12 +1,13 @@
 import MediaPlayer from './MediaPlayer';
 
 function MediaPlayerFactory() {
-
     /**
      * mime-type identifier for any source content to be accepted as a dash manifest by the create() method.
      * @type {string}
      */
     const SUPPORTED_MIME_TYPE = 'application/dash+xml';
+
+    let logger;
 
     /**
      *  A new MediaPlayer is instantiated for the supplied videoElement and optional source and context.  If no context is provided,
@@ -19,12 +20,12 @@ function MediaPlayerFactory() {
      * @returns {MediaPlayer|null}
      */
     function create(video, source, context) {
-        if (!video || video.nodeName !== 'VIDEO') return null;
+        if (!video || !(/^VIDEO$/i).test(video.nodeName)) return null;
 
         if (video._dashjs_player) return video._dashjs_player;
 
-        var player;
-        var videoID = (video.id || video.name || 'video element');
+        let player;
+        let videoID = (video.id || video.name || 'video element');
 
         source = source || [].slice.call(video.querySelectorAll('source')).filter(function (s) {
                 return s.type == SUPPORTED_MIME_TYPE;
@@ -39,7 +40,11 @@ function MediaPlayerFactory() {
         context = context || {};
         player = MediaPlayer(context).create();
         player.initialize(video, source.src, video.autoplay);
-        player.getDebug().log('Converted ' + videoID + ' to dash.js player and added content: ' + source.src);
+
+        if (!logger) {
+            logger = player.getDebug().getLogger();
+        }
+        logger.debug('Converted ' + videoID + ' to dash.js player and added content: ' + source.src);
 
         // Store a reference to the player on the video element so it can be gotten at for debugging and so we know its
         // already been setup.
@@ -80,7 +85,7 @@ function MediaPlayerFactory() {
     }
 
     function findVideo(el) {
-        if (el.nodeName.toLowerCase() === 'video') {
+        if ((/^VIDEO$/i).test(el.nodeName)) {
             return el;
         } else {
             return findVideo(el.parentNode);
@@ -94,17 +99,30 @@ function MediaPlayerFactory() {
 }
 
 let instance = MediaPlayerFactory();
+let loadInterval;
 
 function loadHandler() {
     window.removeEventListener('load', loadHandler);
     instance.createAll();
 }
 
-let avoidAutoCreate = window && window.dashjs && window.dashjs.skipAutoCreate;
-
-if (!avoidAutoCreate && window && window.addEventListener) {
-    if (window.document.readyState === 'complete') {
+function loadIntervalHandler() {
+    if (window.dashjs) {
+        window.clearInterval(loadInterval);
         instance.createAll();
+    }
+}
+
+let avoidAutoCreate = typeof window !== 'undefined' && window && window.dashjs && window.dashjs.skipAutoCreate;
+
+if (!avoidAutoCreate && typeof window !== 'undefined' && window && window.addEventListener) {
+    if (window.document.readyState === 'complete') {
+        if (window.dashjs) {
+            instance.createAll();
+        } else {
+            // If loaded asynchronously, window.readyState may be 'complete' even if dashjs hasn't loaded yet
+            loadInterval = window.setInterval(loadIntervalHandler, 500);
+        }
     } else {
         window.addEventListener('load', loadHandler);
     }

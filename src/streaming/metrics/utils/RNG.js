@@ -29,8 +29,9 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 
-import FactoryMaker from '../../../core/FactoryMaker';
-
+ /**
+  * @ignore
+  */
 function RNG() {
 
     // check whether secure random numbers are available. if not, revert to
@@ -61,7 +62,7 @@ function RNG() {
     }
 
     function rand(min, max) {
-        var r;
+        let r;
 
         if (!min) {
             min = 0;
@@ -86,7 +87,7 @@ function RNG() {
     }
 
     instance = {
-        random: rand,
+        random: rand
     };
 
     initialise();
@@ -95,4 +96,4 @@ function RNG() {
 }
 
 RNG.__dashjs_factory_name = 'RNG';
-export default FactoryMaker.getSingletonFactory(RNG);
+export default dashjs.FactoryMaker.getSingletonFactory(RNG); /* jshint ignore:line */

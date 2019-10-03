@@ -29,7 +29,6 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 
-import FactoryMaker from '../../../core/FactoryMaker';
 import BufferLevel from './handlers/BufferLevelHandler';
 import DVBErrors from './handlers/DVBErrorsHandler';
 import HttpList from './handlers/HttpListHandler';
@@ -37,13 +36,14 @@ import GenericMetricHandler from './handlers/GenericMetricHandler';
 
 function MetricsHandlerFactory(config) {
 
+    config = config || {};
     let instance;
-    let log = config.log;
+    const debug = config.debug;
 
     // group 1: key, [group 3: n [, group 5: type]]
     let keyRegex = /([a-zA-Z]*)(\(([0-9]*)(\,\s*([a-zA-Z]*))?\))?/;
 
-    let context = this.context;
+    const context = this.context;
     let knownFactoryProducts = {
         BufferLevel:    BufferLevel,
         DVBErrors:      DVBErrors,
@@ -63,7 +63,8 @@ function MetricsHandlerFactory(config) {
 
         try {
             handler = knownFactoryProducts[matches[1]](context).create({
-                eventBus: config.eventBus
+                eventBus: config.eventBus,
+                metricsConstants: config.metricsConstants
             });
 
             handler.initialize(
@@ -74,8 +75,7 @@ function MetricsHandlerFactory(config) {
             );
         } catch (e) {
             handler = null;
-
-            log(`MetricsHandlerFactory: Could not create handler for type ${matches[1]} with args ${matches[3]}, ${matches[5]} (${e.message})`);
+            debug.error(`MetricsHandlerFactory: Could not create handler for type ${matches[1]} with args ${matches[3]}, ${matches[5]} (${e.message})`);
         }
 
         return handler;
@@ -99,4 +99,4 @@ function MetricsHandlerFactory(config) {
 }
 
 MetricsHandlerFactory.__dashjs_factory_name = 'MetricsHandlerFactory';
-export default FactoryMaker.getSingletonFactory(MetricsHandlerFactory);
+export default dashjs.FactoryMaker.getSingletonFactory(MetricsHandlerFactory); /* jshint ignore:line */

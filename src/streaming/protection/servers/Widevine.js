@@ -28,8 +28,10 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-import FactoryMaker from '../../../core/FactoryMaker';
 
+/**
+ * @ignore
+ */
 function Widevine() {
 
     let instance;
@@ -59,11 +61,11 @@ function Widevine() {
         getHTTPMethod: getHTTPMethod,
         getResponseType: getResponseType,
         getLicenseMessage: getLicenseMessage,
-        getErrorResponse: getErrorResponse,
+        getErrorResponse: getErrorResponse
     };
 
     return instance;
 }
 
 Widevine.__dashjs_factory_name = 'Widevine';
-export default FactoryMaker.getSingletonFactory(Widevine);
+export default dashjs.FactoryMaker.getSingletonFactory(Widevine); /* jshint ignore:line */

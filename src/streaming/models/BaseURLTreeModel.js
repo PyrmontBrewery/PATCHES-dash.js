@@ -29,7 +29,6 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 
-import DashManifestModel from '../../dash/models/DashManifestModel';
 import ObjectUtils from '../utils/ObjectUtils';
 import FactoryMaker from '../../core/FactoryMaker';
 
@@ -46,25 +45,36 @@ class Node {
 }
 
 function BaseURLTreeModel() {
-
-    let instance;
-    let root;
+    let instance,
+        root,
+        adapter;
 
     const context = this.context;
-    const dashManifestModel = DashManifestModel(context).getInstance();
     const objectUtils = ObjectUtils(context).getInstance();
 
     function setup() {
-        root = new Node();
+        reset();
+    }
+
+    function setConfig(config) {
+        if (config.adapter) {
+            adapter = config.adapter;
+        }
+    }
+
+    function checkConfig() {
+        if (!adapter || !adapter.hasOwnProperty('getBaseURLsFromElement') || !adapter.hasOwnProperty('getRepresentationSortFunction')) {
+            throw new Error('setConfig function has to be called previously');
+        }
     }
 
     function updateChildData(node, index, element) {
-        let baseUrls = dashManifestModel.getBaseURLsFromElement(element);
+        const baseUrls = adapter.getBaseURLsFromElement(element);
 
         if (!node[index]) {
             node[index] = new Node(baseUrls);
         } else {
-            if (!objectUtils.areSimpleEquivalent(baseUrls, node[index].data.baseUrls)) {
+            if (!objectUtils.areEqual(baseUrls, node[index].data.baseUrls)) {
                 node[index].data.baseUrls = baseUrls;
                 node[index].data.selectedIdx = DEFAULT_INDEX;
             }
@@ -72,14 +82,15 @@ function BaseURLTreeModel() {
     }
 
     function getBaseURLCollectionsFromManifest(manifest) {
-        let baseUrls = dashManifestModel.getBaseURLsFromElement(manifest);
+        checkConfig();
+        const baseUrls = adapter.getBaseURLsFromElement(manifest);
 
-        if (!objectUtils.areSimpleEquivalent(baseUrls, root.data.baseUrls)) {
+        if (!objectUtils.areEqual(baseUrls, root.data.baseUrls)) {
             root.data.baseUrls = baseUrls;
             root.data.selectedIdx = DEFAULT_INDEX;
         }
 
-        if (manifest.Period_asArray) {
+        if (manifest && manifest.Period_asArray) {
             manifest.Period_asArray.forEach((p, pi) => {
                 updateChildData(root.children, pi, p);
 
@@ -89,7 +100,7 @@ function BaseURLTreeModel() {
 
                         if (a.Representation_asArray) {
                             a.Representation_asArray.sort(
-                                dashManifestModel.getRepresentationSortFunction()
+                                adapter.getRepresentationSortFunction()
                             ).forEach((r, ri) => {
                                 updateChildData(
                                     root.children[pi].children[ai].children,
@@ -105,7 +116,7 @@ function BaseURLTreeModel() {
     }
 
     function walk(callback, node) {
-        var target = node || root;
+        const target = node || root;
 
         callback(target.data);
 
@@ -133,16 +144,18 @@ function BaseURLTreeModel() {
     }
 
     function getForPath(path) {
-        var target = root;
-        var nodes = [target.data];
+        let target = root;
+        const nodes = [target.data];
 
-        path.forEach(p => {
-            target = target.children[p];
+        if (path) {
+            path.forEach(p => {
+                target = target.children[p];
 
-            if (target) {
-                nodes.push(target.data);
-            }
-        });
+                if (target) {
+                    nodes.push(target.data);
+                }
+            });
+        }
 
         return nodes.filter(n => n.baseUrls.length);
     }
@@ -151,7 +164,8 @@ function BaseURLTreeModel() {
         reset: reset,
         update: update,
         getForPath: getForPath,
-        invalidateSelectedIndexes: invalidateSelectedIndexes
+        invalidateSelectedIndexes: invalidateSelectedIndexes,
+        setConfig: setConfig
     };
 
     setup();

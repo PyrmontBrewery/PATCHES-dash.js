@@ -31,17 +31,20 @@
 import FactoryMaker from '../../core/FactoryMaker';
 import Debug from '../../core/Debug';
 
+const WEBVTT = 'WEBVTT';
+
 function VTTParser() {
-    let context = this.context;
-    let log = Debug(context).getInstance().log;
+    const context = this.context;
 
     let instance,
+        logger,
         regExNewLine,
         regExToken,
         regExWhiteSpace,
         regExWhiteSpaceWordBoundary;
 
     function setup() {
+        logger = Debug(context).getInstance().getLogger(instance);
         regExNewLine = /(?:\r\n|\r|\n)/gm;
         regExToken = /-->/;
         regExWhiteSpace = /(^[\s]+|[\s]+$)/g;
@@ -49,28 +52,29 @@ function VTTParser() {
     }
 
     function parse(data) {
-        var captionArray = [];
-        var len,
+        const captionArray = [];
+        let len,
             lastStartTime;
+
+        if (!data) {
+            return captionArray;
+        }
 
         data = data.split( regExNewLine );
         len = data.length;
         lastStartTime = -1;
 
-        for (var i = 0 ; i < len; i++)
-        {
-            var item = data[i];
+        for (let i = 0 ; i < len; i++) {
+            let item = data[i];
 
-            if (item.length > 0 && item !== 'WEBVTT')
-            {
-                if (item.match(regExToken))
-                {
-                    var attributes = parseItemAttributes(item);
-                    var cuePoints = attributes.cuePoints;
-                    var styles = attributes.styles;
-                    var text = getSublines(data, i + 1);
-                    var startTime = convertCuePointTimes(cuePoints[0].replace(regExWhiteSpace, ''));
-                    var endTime = convertCuePointTimes(cuePoints[1].replace(regExWhiteSpace, ''));
+            if (item.length > 0 && item !== WEBVTT) {
+                if (item.match(regExToken)) {
+                    const attributes = parseItemAttributes(item);
+                    const cuePoints = attributes.cuePoints;
+                    const styles = attributes.styles;
+                    const text = getSublines(data, i + 1);
+                    const startTime = convertCuePointTimes(cuePoints[0].replace(regExWhiteSpace, ''));
+                    const endTime = convertCuePointTimes(cuePoints[1].replace(regExWhiteSpace, ''));
 
                     if ((!isNaN(startTime) && !isNaN(endTime)) && startTime >= lastStartTime && endTime > startTime) {
                         if (text !== '') {
@@ -84,11 +88,11 @@ function VTTParser() {
                             });
                         }
                         else {
-                            log('Skipping cue due to empty/malformed cue text');
+                            logger.error('Skipping cue due to empty/malformed cue text');
                         }
                     }
                     else {
-                        log('Skipping cue due to incorrect cue timing');
+                        logger.error('Skipping cue due to incorrect cue timing');
                     }
                 }
             }
@@ -98,8 +102,8 @@ function VTTParser() {
     }
 
     function convertCuePointTimes(time) {
-        var timeArray = time.split(':');
-        var len = timeArray.length - 1;
+        const timeArray = time.split(':');
+        const len = timeArray.length - 1;
 
         time = parseInt( timeArray[len - 1], 10 ) * 60 + parseFloat( timeArray[len]);
 
@@ -111,8 +115,8 @@ function VTTParser() {
     }
 
     function parseItemAttributes(data) {
-        var vttCuePoints = data.split(regExToken);
-        var arr = vttCuePoints[1].split(regExWhiteSpaceWordBoundary);
+        const vttCuePoints = data.split(regExToken);
+        const arr = vttCuePoints[1].split(regExWhiteSpaceWordBoundary);
         arr.shift(); //remove first array index it is empty...
         vttCuePoints[1] = arr[0];
         arr.shift();
@@ -120,10 +124,10 @@ function VTTParser() {
     }
 
     function getCaptionStyles(arr) {
-        var styleObject = {};
+        const styleObject = {};
         arr.forEach(function (element) {
             if (element.split(/:/).length > 1) {
-                var val = element.split(/:/)[1];
+                let val = element.split(/:/)[1];
                 if (val && val.search(/%/) != -1) {
                     val = parseInt(val.replace(/%/, ''), 10);
                 }
@@ -149,11 +153,11 @@ function VTTParser() {
     * VTT can have multiple lines to display per cuepoint.
     */
     function getSublines(data, idx) {
-        var i = idx;
+        let i = idx;
 
-        var subline = '';
-        var lineData = '';
-        var lineCount;
+        let subline = '';
+        let lineData = '';
+        let lineCount;
 
         while (data[i] !== '' && i < data.length) {
             i++;
@@ -161,7 +165,7 @@ function VTTParser() {
 
         lineCount = i - idx;
         if (lineCount > 1) {
-            for (var j = 0; j < lineCount; j++) {
+            for (let j = 0; j < lineCount; j++) {
                 lineData = data[(idx + j)];
                 if (!lineData.match(regExToken)) {
                     subline += lineData;
@@ -180,7 +184,7 @@ function VTTParser() {
             if (!lineData.match(regExToken))
                 subline = lineData;
         }
-        return decodeURI(subline);
+        return subline;
     }
 
     instance = {

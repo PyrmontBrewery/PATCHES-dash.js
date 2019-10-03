@@ -33,42 +33,69 @@ import FactoryMaker from '../../core/FactoryMaker';
 
 function RulesContext(config) {
 
+    config = config || {};
     let instance;
-    let representationInfo = config.streamProcessor.getCurrentRepresentationInfo();
-    let sp = config.streamProcessor;
-    let currentValue = config.currentValue;
+    const abrController = config.abrController;
+    const switchHistory = config.switchHistory;
+    const droppedFramesHistory = config.droppedFramesHistory;
+    const currentRequest = config.currentRequest;
+    const bufferOccupancyABR = config.useBufferOccupancyABR;
+    const scheduleController = config.streamProcessor ? config.streamProcessor.getScheduleController() : null;
+    const representationInfo = config.streamProcessor ? config.streamProcessor.getRepresentationInfo() : null;
+
+    function getMediaType() {
+        const mediaInfo = getMediaInfo();
+        return mediaInfo ? mediaInfo.type : null;
+    }
 
     function getStreamInfo() {
-        return representationInfo.mediaInfo.streamInfo;
+        const mediaInfo = getMediaInfo();
+        return mediaInfo ? mediaInfo.streamInfo : null;
     }
 
     function getMediaInfo() {
-        return representationInfo.mediaInfo;
+        return representationInfo ? representationInfo.mediaInfo : null;
     }
 
-    function getTrackInfo() {
+    function getRepresentationInfo() {
         return representationInfo;
     }
 
-    function getCurrentValue() {
-        return currentValue;
+    function getScheduleController() {
+        return scheduleController;
     }
 
-    function getManifestInfo() {
-        return representationInfo.mediaInfo.streamInfo.manifestInfo;
+    function getAbrController() {
+        return abrController;
     }
 
-    function getStreamProcessor() {
-        return sp;
+    function getSwitchHistory() {
+        return switchHistory;
+    }
+
+    function getDroppedFramesHistory() {
+        return droppedFramesHistory;
+    }
+
+    function getCurrentRequest() {
+        return currentRequest;
+    }
+
+    function useBufferOccupancyABR() {
+        return bufferOccupancyABR;
     }
 
     instance = {
-        getStreamInfo: getStreamInfo,
+        getMediaType: getMediaType,
         getMediaInfo: getMediaInfo,
-        getTrackInfo: getTrackInfo,
-        getCurrentValue: getCurrentValue,
-        getManifestInfo: getManifestInfo,
-        getStreamProcessor: getStreamProcessor
+        getDroppedFramesHistory: getDroppedFramesHistory,
+        getCurrentRequest: getCurrentRequest,
+        getSwitchHistory: getSwitchHistory,
+        getStreamInfo: getStreamInfo,
+        getScheduleController: getScheduleController,
+        getAbrController: getAbrController,
+        getRepresentationInfo: getRepresentationInfo,
+        useBufferOccupancyABR: useBufferOccupancyABR
     };
 
     return instance;

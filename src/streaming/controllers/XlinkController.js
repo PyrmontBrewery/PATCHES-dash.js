@@ -34,16 +34,15 @@ import Events from '../../core/events/Events';
 import FactoryMaker from '../../core/FactoryMaker';
 import X2JS from '../../../externals/xml2json';
 import URLUtils from '../utils/URLUtils';
+import DashConstants from '../../dash/constants/DashConstants';
 
 const RESOLVE_TYPE_ONLOAD = 'onLoad';
 const RESOLVE_TYPE_ONACTUATE = 'onActuate';
-const ELEMENT_TYPE_PERIOD = 'Period';
-const ELEMENT_TYPE_ADAPTATIONSET = 'AdaptationSet';
-const ELEMENT_TYPE_EVENTSTREAM = 'EventStream';
 const RESOLVE_TO_ZERO = 'urn:mpeg:dash:resolve-to-zero:2013';
 
 function XlinkController(config) {
 
+    config = config || {};
     let context = this.context;
     let eventBus = EventBus(context).getInstance();
     const urlUtils = URLUtils(context).getInstance();
@@ -60,17 +59,22 @@ function XlinkController(config) {
 
         xlinkLoader = XlinkLoader(context).create({
             errHandler: config.errHandler,
-            metricsModel: config.metricsModel,
+            dashMetrics: config.dashMetrics,
+            mediaPlayerModel: config.mediaPlayerModel,
             requestModifier: config.requestModifier
         });
     }
 
     function setMatchers(value) {
-        matchers = value;
+        if (value) {
+            matchers = value;
+        }
     }
 
     function setIron(value) {
-        iron = value;
+        if (value) {
+            iron = value;
+        }
     }
 
     /**
@@ -78,12 +82,22 @@ function XlinkController(config) {
      * @param {Object} mpd - the manifest
      */
     function resolveManifestOnLoad(mpd) {
-        var elements;
+        let elements;
         // First resolve all periods, so unnecessary requests inside onLoad Periods with Default content are avoided
-        converter = new X2JS(matchers, '', true);
+        converter = new X2JS({
+            escapeMode:         false,
+            attributePrefix:    '',
+            arrayAccessForm:    'property',
+            emptyNodeForm:      'object',
+            stripWhitespaces:   false,
+            enableToStringFunc: false,
+            ignoreRoot:         true,
+            matchers:           matchers
+        });
+
         manifest = mpd;
-        elements = getElementsToResolve(manifest.Period_asArray, manifest, ELEMENT_TYPE_PERIOD, RESOLVE_TYPE_ONLOAD);
-        resolve(elements, ELEMENT_TYPE_PERIOD, RESOLVE_TYPE_ONLOAD);
+        elements = getElementsToResolve(manifest.Period_asArray, manifest, DashConstants.PERIOD, RESOLVE_TYPE_ONLOAD);
+        resolve(elements, DashConstants.PERIOD, RESOLVE_TYPE_ONLOAD);
     }
 
     function reset() {
@@ -96,10 +110,9 @@ function XlinkController(config) {
     }
 
     function resolve(elements, type, resolveType) {
-        var resolveObject = {};
-        var element,
-            url,
-            i;
+        let resolveObject = {};
+        let element,
+            url;
 
         resolveObject.elements = elements;
         resolveObject.type = type;
@@ -108,7 +121,7 @@ function XlinkController(config) {
         if (resolveObject.elements.length === 0) {
             onXlinkAllElementsLoaded(resolveObject);
         }
-        for (i = 0; i < resolveObject.elements.length; i++) {
+        for (let i = 0; i < resolveObject.elements.length; i++) {
             element = resolveObject.elements[i];
             if (urlUtils.isHTTPURL(element.url)) {
                 url = element.url;
@@ -120,20 +133,22 @@ function XlinkController(config) {
     }
 
     function onXlinkElementLoaded(event) {
-        var element,
-            resolveObject,
-            index;
+        let element,
+            resolveObject;
 
-        var openingTag = '<response>';
-        var closingTag = '</response>';
-        var mergedContent = '';
+        const openingTag = '<response>';
+        const closingTag = '</response>';
+        let mergedContent = '';
 
         element = event.element;
         resolveObject = event.resolveObject;
         // if the element resolved into content parse the content
         if (element.resolvedContent) {
+            let index = 0;
             // we add a parent elements so the converter is able to parse multiple elements of the same type which are not wrapped inside a container
-            index = element.resolvedContent.indexOf('>') + 1; //find the closing position of the xml tag
+            if (element.resolvedContent.indexOf('<?xml') === 0) {
+                index = element.resolvedContent.indexOf('?>') + 2; //find the closing position of the xml declaration, if it exists.
+            }
             mergedContent = element.resolvedContent.substr(0,index) + openingTag + element.resolvedContent.substr(index) + closingTag;
             element.resolvedContent = converter.xml_str2json(mergedContent);
         }
@@ -144,8 +159,8 @@ function XlinkController(config) {
 
     // We got to wait till all elements of the current queue are resolved before merging back
     function onXlinkAllElementsLoaded (resolveObject) {
-        var elements = [];
-        var i,
+        let elements = [];
+        let i,
             obj;
 
         mergeElementsBack(resolveObject);
@@ -155,19 +170,19 @@ function XlinkController(config) {
         if (resolveObject.resolveType === RESOLVE_TYPE_ONLOAD) {
             switch (resolveObject.type) {
                 // Start resolving the other elements. We can do Adaptation Set and EventStream in parallel
-                case ELEMENT_TYPE_PERIOD:
-                    for (i = 0; i < manifest[ELEMENT_TYPE_PERIOD + '_asArray'].length; i++) {
-                        obj = manifest[ELEMENT_TYPE_PERIOD + '_asArray'][i];
-                        if (obj.hasOwnProperty(ELEMENT_TYPE_ADAPTATIONSET + '_asArray')) {
-                            elements = elements.concat(getElementsToResolve(obj[ELEMENT_TYPE_ADAPTATIONSET + '_asArray'], obj, ELEMENT_TYPE_ADAPTATIONSET, RESOLVE_TYPE_ONLOAD));
+                case DashConstants.PERIOD:
+                    for (i = 0; i < manifest[DashConstants.PERIOD + '_asArray'].length; i++) {
+                        obj = manifest[DashConstants.PERIOD + '_asArray'][i];
+                        if (obj.hasOwnProperty(DashConstants.ADAPTATION_SET + '_asArray')) {
+                            elements = elements.concat(getElementsToResolve(obj[DashConstants.ADAPTATION_SET + '_asArray'], obj, DashConstants.ADAPTATION_SET, RESOLVE_TYPE_ONLOAD));
                         }
-                        if (obj.hasOwnProperty(ELEMENT_TYPE_EVENTSTREAM + '_asArray')) {
-                            elements = elements.concat(getElementsToResolve(obj[ELEMENT_TYPE_EVENTSTREAM + '_asArray'], obj, ELEMENT_TYPE_EVENTSTREAM, RESOLVE_TYPE_ONLOAD));
+                        if (obj.hasOwnProperty(DashConstants.EVENT_STREAM + '_asArray')) {
+                            elements = elements.concat(getElementsToResolve(obj[DashConstants.EVENT_STREAM + '_asArray'], obj, DashConstants.EVENT_STREAM, RESOLVE_TYPE_ONLOAD));
                         }
                     }
-                    resolve(elements, ELEMENT_TYPE_ADAPTATIONSET, RESOLVE_TYPE_ONLOAD);
+                    resolve(elements, DashConstants.ADAPTATION_SET, RESOLVE_TYPE_ONLOAD);
                     break;
-                case ELEMENT_TYPE_ADAPTATIONSET:
+                case DashConstants.ADAPTATION_SET:
                     // TODO: Resolve SegmentList here
                     eventBus.trigger(Events.XLINK_READY, {manifest: manifest});
                     break;
@@ -177,8 +192,8 @@ function XlinkController(config) {
 
     // Returns the elements with the specific resolve Type
     function getElementsToResolve(elements, parentElement, type, resolveType) {
-        var toResolve = [];
-        var element,
+        let toResolve = [];
+        let element,
             i,
             xlinkObject;
         // first remove all the resolve-to-zero elements
@@ -200,8 +215,8 @@ function XlinkController(config) {
     }
 
     function mergeElementsBack(resolveObject) {
-        var resolvedElements = [];
-        var element,
+        let resolvedElements = [];
+        let element,
             type,
             obj,
             i,
@@ -253,7 +268,7 @@ function XlinkController(config) {
 
     // Check if all pending requests are finished
     function isResolvingFinished(elementsToResolve) {
-        var i,
+        let i,
             obj;
         for (i = 0; i < elementsToResolve.elements.length; i++) {
             obj = elementsToResolve.elements[i];

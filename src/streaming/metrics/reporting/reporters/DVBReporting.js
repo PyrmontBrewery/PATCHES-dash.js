@@ -28,29 +28,39 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-import FactoryMaker from '../../../../core/FactoryMaker';
+
 import MetricSerialiser from '../../utils/MetricSerialiser';
 import RNG from '../../utils/RNG';
 
-function DVBReporting() {
+function DVBReporting(config) {
+    config = config || {};
     let instance;
 
     let context = this.context;
-    let metricSerialiser = MetricSerialiser(context).getInstance();
-    let randomNumberGenerator = RNG(context).getInstance();
+    let metricSerialiser,
+        randomNumberGenerator,
+        reportingPlayerStatusDecided,
+        isReportingPlayer,
+        reportingUrl,
+        rangeController;
 
     let USE_DRAFT_DVB_SPEC = true;
-    let isReportingPlayer = false;
-    let reportingPlayerStatusDecided = false;
-    let reportingUrl = null;
-    let rangeController = null;
     let allowPendingRequestsToCompleteOnReset = true;
     let pendingRequests = [];
 
+    const metricsConstants = config.metricsConstants;
+
+    function setup() {
+        metricSerialiser = MetricSerialiser(context).getInstance();
+        randomNumberGenerator = RNG(context).getInstance();
+
+        resetInitialSettings();
+    }
+
     function doGetRequest(url, successCB, failureCB) {
-        var req = new XMLHttpRequest();
-        var oncomplete = function () {
-            var reqIndex = pendingRequests.indexOf(req);
+        let req = new XMLHttpRequest();
+        const oncomplete = function () {
+            let reqIndex = pendingRequests.indexOf(req);
 
             if (reqIndex === -1) {
                 return;
@@ -95,10 +105,10 @@ function DVBReporting() {
             // This reporting mechanism operates by creating one HTTP GET
             // request for every entry in the top level list of the metric.
             vos.forEach(function (vo) {
-                var url = metricSerialiser.serialise(vo);
+                let url = metricSerialiser.serialise(vo);
 
                 // this has been proposed for errata
-                if (USE_DRAFT_DVB_SPEC && (type !== 'DVBErrors')) {
+                if (USE_DRAFT_DVB_SPEC && (type !== metricsConstants.DVB_ERRORS)) {
                     url = `metricname=${type}&${url}`;
                 }
 
@@ -123,7 +133,7 @@ function DVBReporting() {
     }
 
     function initialize(entry, rc) {
-        var probability;
+        let probability;
 
         rangeController = rc;
 
@@ -156,16 +166,20 @@ function DVBReporting() {
         }
     }
 
+    function resetInitialSettings() {
+        reportingPlayerStatusDecided = false;
+        isReportingPlayer = false;
+        reportingUrl = null;
+        rangeController = null;
+    }
+
     function reset() {
         if (!allowPendingRequestsToCompleteOnReset) {
             pendingRequests.forEach(req => req.abort());
             pendingRequests = [];
         }
 
-        reportingPlayerStatusDecided = false;
-        isReportingPlayer = false;
-        reportingUrl = null;
-        rangeController = null;
+        resetInitialSettings();
     }
 
     instance = {
@@ -174,8 +188,10 @@ function DVBReporting() {
         reset:      reset
     };
 
+    setup();
+
     return instance;
 }
 
 DVBReporting.__dashjs_factory_name = 'DVBReporting';
-export default FactoryMaker.getClassFactory(DVBReporting);
+export default dashjs.FactoryMaker.getClassFactory(DVBReporting); /* jshint ignore:line */

@@ -28,139 +28,155 @@
  *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  */
-import {HTTPRequest} from '../streaming/vo/metrics/HTTPRequest';
-import ManifestModel from '../streaming/models/ManifestModel';
-import DashManifestModel from './models/DashManifestModel';
+import Constants from '../streaming/constants/Constants';
+import { HTTPRequest } from '../streaming/vo/metrics/HTTPRequest';
 import FactoryMaker from '../core/FactoryMaker';
-import * as MetricsList from './constants/DashMetricsList';
-import { round10 } from 'round10';
+import MetricsConstants from '../streaming/constants/MetricsConstants';
+import Round10 from './utils/Round10';
+import MetricsModel from '../streaming/models/MetricsModel';
+import {
+    PlayList,
+    PlayListTrace
+} from '../streaming/vo/metrics/PlayList';
 
 /**
  * @module DashMetrics
+ * @ignore
+ * @param {object} config
  */
-function DashMetrics() {
 
-    let instance;
-    let context = this.context;
-    let manifestModel = ManifestModel(context).getInstance();//TODO Need to pass this in not bake in
+function DashMetrics(config) {
 
-    function getBandwidthForRepresentation(representationId, periodId) {
-        var representation;
-        var manifest = manifestModel.getValue();
-        var period = manifest.Period_asArray[periodId];
+    config = config || {};
 
-        representation = findRepresentation(period, representationId);
+    const context = this.context;
+    let instance,
+        playListTraceMetricsClosed,
+        playListTraceMetrics,
+        playListMetrics;
 
-        if (representation === null) {
-            return null;
-        }
+    let metricsModel = config.metricsModel;
 
-        return representation.bandwidth;
+    function setup() {
+        metricsModel = metricsModel || MetricsModel(context).getInstance({settings: config.settings});
+        resetInitialSettings();
     }
 
-
-    /**
-     *
-     * @param {string} representationId
-     * @param {number} periodIdx
-     * @returns {*}
-     */
-    function getIndexForRepresentation(representationId, periodIdx) {
-        var representationIndex;
-        var manifest = manifestModel.getValue();
-        var period = manifest.Period_asArray[periodIdx];
-
-        representationIndex = findRepresentationIndex(period, representationId);
-        return representationIndex;
+    function resetInitialSettings() {
+        playListTraceMetricsClosed = true;
+        playListTraceMetrics = null;
+        playListMetrics = null;
     }
 
     /**
-     * This method returns the current max index based on what is defined in the MPD.
-     *
-     * @param {string} bufferType - String 'audio' or 'video',
-     * @param {number} periodIdx - Make sure this is the period index not id
-     * @return {number}
-     * @memberof module:DashMetrics
-     * @instance
-     */
-    function getMaxIndexForBufferType(bufferType, periodIdx) {
-        var maxIndex;
-        var manifest = manifestModel.getValue();
-        var period = manifest.Period_asArray[periodIdx];
-
-        maxIndex = findMaxBufferIndex(period, bufferType);
-        return maxIndex;
-    }
-
-    /**
-     * @param {MetricsList} metrics
+     * @param {string} mediaType
+     * @param {boolean} readOnly
      * @returns {*}
      * @memberof module:DashMetrics
      * @instance
      */
-    function getCurrentRepresentationSwitch(metrics) {
-        return getCurrent(metrics, MetricsList.TRACK_SWITCH);
+    function getCurrentRepresentationSwitch(mediaType, readOnly) {
+        const metrics = metricsModel.getMetricsFor(mediaType, readOnly);
+        return getCurrent(metrics, MetricsConstants.TRACK_SWITCH);
     }
 
     /**
-     * @param {MetricsList} metrics
+     * @param {string} mediaType
+     * @param {Date} t time of the switch event
+     * @param {Date} mt media presentation time
+     * @param {string} to id of representation
+     * @param {string} lto if present, subrepresentation reference
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addRepresentationSwitch(mediaType, t, mt, to, lto) {
+        metricsModel.addRepresentationSwitch(mediaType, t, mt, to, lto);
+    }
+
+    /**
+     * @param {string} mediaType
+     * @param {boolean} readOnly
+     * @param {string} infoType
      * @returns {*}
      * @memberof module:DashMetrics
      * @instance
      */
-    function getLatestBufferLevelVO(metrics) {
-        return getCurrent(metrics, MetricsList.BUFFER_LEVEL);
+    function getLatestBufferInfoVO(mediaType, readOnly, infoType) {
+        const metrics = metricsModel.getMetricsFor(mediaType, readOnly);
+        return getCurrent(metrics, infoType);
     }
 
     /**
-     * @param {MetricsList} metrics
+     * @param {string} type
+     * @param {boolean} readOnly
      * @returns {number}
      * @memberof module:DashMetrics
      * @instance
      */
-    function getCurrentBufferLevel(metrics) {
-        const vo = getLatestBufferLevelVO(metrics);
+    function getCurrentBufferLevel(type, readOnly) {
+        const vo = getLatestBufferInfoVO(type, readOnly, MetricsConstants.BUFFER_LEVEL);
 
         if (vo) {
-            return round10(vo.level / 1000, -3);
+            return Round10.round10(vo.level / 1000, -3);
         }
 
         return 0;
     }
 
     /**
-     * @param {MetricsList} metrics
-     * @returns {null|*|vo}
+     * @param {string} mediaType
+     * @param {number} t
+     * @param {number} level
      * @memberof module:DashMetrics
      * @instance
      */
-    function getRequestsQueue(metrics) {
-        return metrics.RequestsQueue;
+    function addBufferLevel(mediaType, t, level) {
+        metricsModel.addBufferLevel(mediaType, t, level);
     }
 
     /**
-     * @param {MetricsList} metrics
+     * @param {string} mediaType
+     * @param {string} state
+     * @param {number} target
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addBufferState(mediaType, state, target) {
+        metricsModel.addBufferState(mediaType, state, target);
+    }
+
+    /**
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function clearAllCurrentMetrics () {
+        metricsModel.clearAllCurrentMetrics();
+    }
+
+    /**
+     * @param {string} mediaType
+     * @param {boolean} readOnly
      * @returns {*}
      * @memberof module:DashMetrics
      * @instance
      */
-    function getCurrentHttpRequest(metrics) {
-        if (metrics === null) {
+    function getCurrentHttpRequest(mediaType, readOnly) {
+        const metrics = metricsModel.getMetricsFor(mediaType, readOnly);
+
+        if (!metrics) {
             return null;
         }
 
-        var httpList = metrics.HttpList;
-        var currentHttpList = null;
+        const httpList = metrics.HttpList;
+        let currentHttpList = null;
 
-        var httpListLength,
-            httpListLastIndex;
+        let httpListLastIndex;
 
-        if (httpList === null || httpList.length <= 0) {
+        if (!httpList || httpList.length <= 0) {
             return null;
         }
 
-        httpListLength = httpList.length;
-        httpListLastIndex = httpListLength - 1;
+        httpListLastIndex = httpList.length - 1;
 
         while (httpListLastIndex >= 0) {
             if (httpList[httpListLastIndex].responsecode) {
@@ -173,17 +189,29 @@ function DashMetrics() {
     }
 
     /**
-     * @param {MetricsList} metrics
+     * @param {string} mediaType
      * @returns {*}
      * @memberof module:DashMetrics
      * @instance
      */
-    function getHttpRequests(metrics) {
-        if (metrics === null) {
+    function getHttpRequests(mediaType) {
+        const metrics = metricsModel.getMetricsFor(mediaType, true);
+        if (!metrics) {
             return [];
         }
 
         return !!metrics.HttpList ? metrics.HttpList : [];
+    }
+
+    /**
+     * @param {string} mediaType
+     * @param {Array} loadingRequests
+     * @param {Array} executedRequests
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addRequestsQueue(mediaType, loadingRequests, executedRequests) {
+        metricsModel.addRequestsQueue(mediaType, loadingRequests, executedRequests);
     }
 
     /**
@@ -194,83 +222,185 @@ function DashMetrics() {
      * @instance
      */
     function getCurrent(metrics, metricName) {
-        if (metrics === null) {
+        if (!metrics) {
             return null;
         }
 
         const list = metrics[metricName];
 
-        if (list === null) {
+        if (!list || list.length <= 0) {
             return null;
         }
 
-        const length = list.length;
+        return list[list.length - 1];
+    }
 
-        if (length <= 0) {
-            return null;
+    /**
+     * @returns {*}
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function getCurrentDroppedFrames() {
+        const metrics = metricsModel.getMetricsFor(Constants.VIDEO, true);
+        return getCurrent(metrics, MetricsConstants.DROPPED_FRAMES);
+    }
+
+    /**
+     * @param {number} quality
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addDroppedFrames(quality) {
+        metricsModel.addDroppedFrames(Constants.VIDEO, quality);
+    }
+
+    /**
+     * @param {string} mediaType
+     * @returns {*}
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function getCurrentSchedulingInfo(mediaType) {
+        const metrics = metricsModel.getMetricsFor(mediaType, true);
+        return getCurrent(metrics, MetricsConstants.SCHEDULING_INFO);
+    }
+
+    /**
+     * @param {object} request
+     * @param {string} state
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addSchedulingInfo(request, state) {
+        metricsModel.addSchedulingInfo(
+            request.mediaType,
+            new Date(),
+            request.type,
+            request.startTime,
+            request.availabilityStartTime,
+            request.duration,
+            request.quality,
+            request.range,
+            state);
+    }
+
+    /**
+     * @returns {*}
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function getCurrentManifestUpdate() {
+        const streamMetrics = metricsModel.getMetricsFor(Constants.STREAM);
+        return getCurrent(streamMetrics, MetricsConstants.MANIFEST_UPDATE);
+    }
+
+    /**
+     * @param {object} updatedFields fields to be updated
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function updateManifestUpdateInfo(updatedFields) {
+        const manifestUpdate = this.getCurrentManifestUpdate();
+        metricsModel.updateManifestUpdateInfo(manifestUpdate, updatedFields);
+    }
+
+    /**
+     * @param {object} streamInfo
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addManifestUpdateStreamInfo(streamInfo) {
+        if (streamInfo) {
+            const manifestUpdate = this.getCurrentManifestUpdate();
+            metricsModel.addManifestUpdateStreamInfo(manifestUpdate, streamInfo.id, streamInfo.index, streamInfo.start, streamInfo.duration);
         }
-
-        return list[length - 1];
     }
 
     /**
-     * @param {MetricsList} metrics
+     * @param {object} request
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addManifestUpdate(request) {
+        metricsModel.addManifestUpdate(Constants.STREAM, request.type, request.requestStartDate, request.requestEndDate);
+    }
+
+    /**
+     * @param {object} request
+     * @param {string} responseURL
+     * @param {number} responseStatus
+     * @param {object} responseHeaders
+     * @param {object} traces
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addHttpRequest(request, responseURL, responseStatus, responseHeaders, traces) {
+        metricsModel.addHttpRequest(request.mediaType,
+            null,
+            request.type,
+            request.url,
+            responseURL,
+            request.serviceLocation || null,
+            request.range || null,
+            request.requestStartDate,
+            request.firstByteDate,
+            request.requestEndDate,
+            responseStatus,
+            request.duration,
+            responseHeaders,
+            traces);
+    }
+
+    /**
+     * @param {object} representation
+     * @param {string} mediaType
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addManifestUpdateRepresentationInfo(representation, mediaType) {
+        if (representation) {
+            const manifestUpdateInfo = this.getCurrentManifestUpdate();
+            metricsModel.addManifestUpdateRepresentationInfo(manifestUpdateInfo, representation.id, representation.index, representation.streamIndex, mediaType, representation.presentationTimeOffset, representation.startNumber, representation.fragmentInfoType);
+        }
+    }
+
+    /**
+     * @param {string} mediaType
      * @returns {*}
      * @memberof module:DashMetrics
      * @instance
      */
-    function getCurrentDroppedFrames(metrics) {
-        return getCurrent(metrics, MetricsList.DROPPED_FRAMES);
+    function getCurrentDVRInfo(mediaType) {
+        const metrics = mediaType ? metricsModel.getMetricsFor(mediaType, true) :
+            metricsModel.getMetricsFor(Constants.VIDEO, true) || metricsModel.getMetricsFor(Constants.AUDIO, true);
+        return getCurrent(metrics, MetricsConstants.DVR_INFO);
     }
 
     /**
-     * @param {MetricsList} metrics
-     * @returns {*}
+     * @param {string} mediaType
+     * @param {Date} currentTime time of the switch event
+     * @param {object} mpd mpd reference
+     * @param {object} range range of the dvr info
      * @memberof module:DashMetrics
      * @instance
      */
-    function getCurrentSchedulingInfo(metrics) {
-        return getCurrent(metrics, MetricsList.SCHEDULING_INFO);
+    function addDVRInfo(mediaType, currentTime, mpd, range) {
+        metricsModel.addDVRInfo(mediaType, currentTime, mpd, range);
     }
 
     /**
-     * @param {MetricsList} metrics
-     * @returns {*}
-     * @memberof module:DashMetrics
-     * @instance
-     */
-    function getCurrentManifestUpdate(metrics) {
-        return getCurrent(metrics, MetricsList.MANIFEST_UPDATE);
-    }
-
-    /**
-     * @param {MetricsList} metrics
-     * @returns {*}
-     * @memberof module:DashMetrics
-     * @instance
-     */
-    function getCurrentDVRInfo(metrics) {
-        return getCurrent(metrics, MetricsList.DVR_INFO);
-    }
-
-    /**
-     * @param {MetricsList} metrics
      * @param {string} id
      * @returns {*}
      * @memberof module:DashMetrics
      * @instance
      */
-    function getLatestMPDRequestHeaderValueByID(metrics, id) {
-        var headers = {};
-        var httpRequestList,
+    function getLatestMPDRequestHeaderValueByID(id) {
+        let headers = {};
+        let httpRequestList,
             httpRequest,
             i;
 
-        if (metrics === null) {
-            return null;
-        }
-
-        httpRequestList = getHttpRequests(metrics);
+        httpRequestList = getHttpRequests(Constants.STREAM);
 
         for (i = httpRequestList.length - 1; i >= 0; i--) {
             httpRequest = httpRequestList[i];
@@ -285,34 +415,33 @@ function DashMetrics() {
     }
 
     /**
-     * @param {MetricsList} metrics
+     * @param {string} type
      * @param {string} id
      * @returns {*}
      * @memberof module:DashMetrics
      * @instance
      */
-    function getLatestFragmentRequestHeaderValueByID(metrics, id) {
-
-        if (metrics === null) return null;
-
-        var httpRequest = getCurrentHttpRequest(metrics);
-        var headers;
-
-        if (httpRequest === null || httpRequest._responseHeaders === null) return null;
-
-        headers = parseResponseHeaders(httpRequest._responseHeaders);
+    function getLatestFragmentRequestHeaderValueByID(type, id) {
+        let headers = {};
+        let httpRequest = getCurrentHttpRequest(type, true);
+        if (httpRequest) {
+            headers = parseResponseHeaders(httpRequest._responseHeaders);
+        }
         return headers[id] === undefined ? null :  headers[id];
     }
 
     function parseResponseHeaders(headerStr) {
-        var headers = {};
+        let headers = {};
         if (!headerStr) {
             return headers;
         }
-        var headerPairs = headerStr.split('\u000d\u000a');
-        for (var i = 0, ilen = headerPairs.length; i < ilen; i++) {
-            var headerPair = headerPairs[i];
-            var index = headerPair.indexOf('\u003a\u0020');
+
+        // Trim headerStr to fix a MS Edge bug with xhr.getAllResponseHeaders method
+        // which send a string starting with a "\n" character
+        let headerPairs = headerStr.trim().split('\u000d\u000a');
+        for (let i = 0, ilen = headerPairs.length; i < ilen; i++) {
+            let headerPair = headerPairs[i];
+            let index = headerPair.indexOf('\u003a\u0020');
             if (index > 0) {
                 headers[headerPair.substring(0, index)] = headerPair.substring(index + 2);
             }
@@ -320,73 +449,68 @@ function DashMetrics() {
         return headers;
     }
 
-    function findRepresentationIndex(period, representationId) {
-        const index = findRepresentation(period, representationId, true);
-
-        if (index !== null) {
-            return index;
+    /**
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addPlayList() {
+        if (playListMetrics) {
+            metricsModel.addPlayList(playListMetrics);
+            playListMetrics = null;
         }
-
-        return -1;
     }
 
-    function findRepresentation(period, representationId, returnIndex) {
-        var adaptationSet,
-            adaptationSetArray,
-            representation,
-            representationArray,
-            adaptationSetArrayIndex,
-            representationArrayIndex;
+    function createPlaylistMetrics(mediaStartTime, startReason) {
+        playListMetrics = new PlayList();
 
-        adaptationSetArray = period.AdaptationSet_asArray;
-        for (adaptationSetArrayIndex = 0; adaptationSetArrayIndex < adaptationSetArray.length; adaptationSetArrayIndex = adaptationSetArrayIndex + 1) {
-            adaptationSet = adaptationSetArray[adaptationSetArrayIndex];
-            representationArray = adaptationSet.Representation_asArray;
-            for (representationArrayIndex = 0; representationArrayIndex < representationArray.length; representationArrayIndex = representationArrayIndex + 1) {
-                representation = representationArray[representationArrayIndex];
-                if (representationId === representation.id) {
-                    if (returnIndex) {
-                        return representationArrayIndex;
-                    } else {
-                        return representation;
-                    }
-                }
+        playListMetrics.start = new Date();
+        playListMetrics.mstart = mediaStartTime;
+        playListMetrics.starttype = startReason;
+    }
+
+    function createPlaylistTraceMetrics(representationId, mediaStartTime, speed) {
+        if (playListTraceMetricsClosed === true ) {
+            playListTraceMetricsClosed = false;
+            playListTraceMetrics = new PlayListTrace();
+
+            playListTraceMetrics.representationid = representationId;
+            playListTraceMetrics.start = new Date();
+            playListTraceMetrics.mstart = mediaStartTime;
+            playListTraceMetrics.playbackspeed = speed;
+        }
+    }
+
+    function updatePlayListTraceMetrics(traceToUpdate) {
+        if (playListTraceMetrics) {
+            for (let field in playListTraceMetrics) {
+                playListTraceMetrics[field] = traceToUpdate[field];
             }
         }
-
-        return null;
     }
 
-    function adaptationIsType(adaptation, bufferType) {
-        return DashManifestModel(context).getInstance().getIsTypeOf(adaptation, bufferType);
-    }
-
-    function findMaxBufferIndex(period, bufferType) {
-        var adaptationSet,
-            adaptationSetArray,
-            representationArray,
-            adaptationSetArrayIndex;
-
-        if (!period || !bufferType) return -1;
-
-        adaptationSetArray = period.AdaptationSet_asArray;
-        for (adaptationSetArrayIndex = 0; adaptationSetArrayIndex < adaptationSetArray.length; adaptationSetArrayIndex = adaptationSetArrayIndex + 1) {
-            adaptationSet = adaptationSetArray[adaptationSetArrayIndex];
-            representationArray = adaptationSet.Representation_asArray;
-            if (adaptationIsType(adaptationSet, bufferType)) {
-                return representationArray.length;
-            }
+    function pushPlayListTraceMetrics(endTime, reason) {
+        if (playListTraceMetricsClosed === false && playListMetrics && playListTraceMetrics && playListTraceMetrics.start) {
+            const startTime = playListTraceMetrics.start;
+            const duration = endTime.getTime() - startTime.getTime();
+            playListTraceMetrics.duration = duration;
+            playListTraceMetrics.stopreason = reason;
+            playListMetrics.trace.push(playListTraceMetrics);
+            playListTraceMetricsClosed = true;
         }
+    }
 
-        return -1;
+    /**
+     * @param {object} errors
+     * @memberof module:DashMetrics
+     * @instance
+     */
+    function addDVBErrors(errors) {
+        metricsModel.addDVBErrors(errors);
     }
 
     instance = {
-        getBandwidthForRepresentation: getBandwidthForRepresentation,
-        getIndexForRepresentation: getIndexForRepresentation,
-        getMaxIndexForBufferType: getMaxIndexForBufferType,
         getCurrentRepresentationSwitch: getCurrentRepresentationSwitch,
-        getLatestBufferLevelVO: getLatestBufferLevelVO,
+        getLatestBufferInfoVO: getLatestBufferInfoVO,
         getCurrentBufferLevel: getCurrentBufferLevel,
         getCurrentHttpRequest: getCurrentHttpRequest,
         getHttpRequests: getHttpRequests,
@@ -396,8 +520,28 @@ function DashMetrics() {
         getCurrentManifestUpdate: getCurrentManifestUpdate,
         getLatestFragmentRequestHeaderValueByID: getLatestFragmentRequestHeaderValueByID,
         getLatestMPDRequestHeaderValueByID: getLatestMPDRequestHeaderValueByID,
-        getRequestsQueue: getRequestsQueue
+        addRepresentationSwitch: addRepresentationSwitch,
+        addDVRInfo: addDVRInfo,
+        updateManifestUpdateInfo: updateManifestUpdateInfo,
+        addManifestUpdateStreamInfo: addManifestUpdateStreamInfo,
+        addManifestUpdateRepresentationInfo: addManifestUpdateRepresentationInfo,
+        addManifestUpdate: addManifestUpdate,
+        addHttpRequest: addHttpRequest,
+        addSchedulingInfo: addSchedulingInfo,
+        addRequestsQueue: addRequestsQueue,
+        addBufferLevel: addBufferLevel,
+        addBufferState: addBufferState,
+        addDroppedFrames: addDroppedFrames,
+        addPlayList: addPlayList,
+        addDVBErrors: addDVBErrors,
+        createPlaylistMetrics: createPlaylistMetrics,
+        createPlaylistTraceMetrics: createPlaylistTraceMetrics,
+        updatePlayListTraceMetrics: updatePlayListTraceMetrics,
+        pushPlayListTraceMetrics: pushPlayListTraceMetrics,
+        clearAllCurrentMetrics: clearAllCurrentMetrics
     };
+
+    setup();
 
     return instance;
 }

@@ -32,6 +32,7 @@
  * @classdesc This Object holds reference to the HTTPRequest for manifest, fragment and xlink loading.
  * Members which are not defined in ISO23009-1 Annex D should be prefixed by a _ so that they are ignored
  * by Metrics Reporting code.
+ * @ignore
  */
 class HTTPRequest {
     /**
@@ -127,6 +128,7 @@ class HTTPRequest {
 
 /**
  * @classdesc This Object holds reference to the progress of the HTTPRequest.
+ * @ignore
  */
 class HTTPRequestTrace {
     /**
@@ -151,6 +153,8 @@ class HTTPRequestTrace {
     }
 }
 
+HTTPRequest.GET = 'GET';
+HTTPRequest.HEAD = 'HEAD';
 HTTPRequest.MPD_TYPE = 'MPD';
 HTTPRequest.XLINK_EXPANSION_TYPE = 'XLinkExpansion';
 HTTPRequest.INIT_SEGMENT_TYPE = 'InitializationSegment';

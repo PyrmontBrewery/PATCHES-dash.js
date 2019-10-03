@@ -30,6 +30,7 @@
  */
 /**
  * @classdesc This Object holds reference to the manifest update information.
+ * @ignore
  */
 class ManifestUpdate {
     /**
@@ -93,16 +94,17 @@ class ManifestUpdate {
          */
         this.streamInfo = [];
         /**
-         * Array holding list of TrackInfo VO Objects
+         * Array holding list of RepresentationInfo VO Objects
          * @public
          */
-        this.trackInfo = [];
+        this.representationInfo = [];
 
     }
 }
 
 /**
  * @classdesc This Object holds reference to the current period's stream information when the manifest was updated.
+ * @ignore
  */
 class ManifestUpdateStreamInfo {
     /**
@@ -134,8 +136,9 @@ class ManifestUpdateStreamInfo {
 
 /**
  * @classdesc This Object holds reference to the current representation's info when the manifest was updated.
+ * @ignore
  */
-class ManifestUpdateTrackInfo {
+class ManifestUpdateRepresentationInfo {
     /**
      * @class
      */
@@ -156,7 +159,7 @@ class ManifestUpdateTrackInfo {
          */
         this.mediaType = null;
         /**
-         * Which reprenset
+         * Which representation
          * @public
          */
         this.streamIndex = null;
@@ -178,4 +181,4 @@ class ManifestUpdateTrackInfo {
     }
 }
 
-export { ManifestUpdate, ManifestUpdateStreamInfo, ManifestUpdateTrackInfo };
+export { ManifestUpdate, ManifestUpdateStreamInfo, ManifestUpdateRepresentationInfo };
