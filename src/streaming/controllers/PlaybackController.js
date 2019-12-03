@@ -155,9 +155,9 @@ function PlaybackController() {
                 }
             } else {
                 eventBus.trigger(Events.PLAYBACK_SEEK_ASKED);
-                let initialStartTime = getStreamStartTime(false);
-                if (!isDynamic && time < initialStartTime) {
-                    time = initialStartTime;
+                if (streamInfo) {
+                    delete bufferedRange[streamInfo.id];
+                    delete commonEarliestTime[streamInfo.id];
                 }
                 logger.info('Requesting seek to time: ' + time);
                 videoModel.setCurrentTime(time, stickToBuffered);
@@ -701,7 +701,7 @@ function PlaybackController() {
         const hasVideoTrack = streamController.isTrackTypePresent(Constants.VIDEO);
         const hasAudioTrack = streamController.isTrackTypePresent(Constants.AUDIO);
 
-        initialStartTime = getStreamStartTime(false);
+        initialStartTime = getStreamStartTime(true);
         if (hasAudioTrack && hasVideoTrack) {
             //current stream has audio and video contents
             if (!isNaN(commonEarliestTime[streamInfo.id].audio) && !isNaN(commonEarliestTime[streamInfo.id].video)) {
@@ -718,8 +718,10 @@ function PlaybackController() {
                     ranges = bufferedRange[streamInfo.id].video;
                 }
                 if (checkTimeInRanges(earliestTime, ranges)) {
-                    if (!isSeeking() && !compatibleWithPreviousStream && earliestTime !== 0) {
-                        seek(earliestTime, true, true);
+                    if (!(checkTimeInRanges(getNormalizedTime(), bufferedRange[streamInfo.id].audio) && checkTimeInRanges(getNormalizedTime(), bufferedRange[streamInfo.id].video))) {
+                        if (!compatibleWithPreviousStream && earliestTime !== 0) {
+                            seek(earliestTime, true, true);
+                        }
                     }
                     commonEarliestTime[streamInfo.id].started = true;
                 }
@@ -728,7 +730,7 @@ function PlaybackController() {
             //current stream has only audio or only video content
             if (commonEarliestTime[streamInfo.id][type]) {
                 earliestTime = commonEarliestTime[streamInfo.id][type] > initialStartTime ? commonEarliestTime[streamInfo.id][type] : initialStartTime;
-                if (!isSeeking() && !compatibleWithPreviousStream) {
+                if (!compatibleWithPreviousStream) {
                     seek(earliestTime, false, true);
                 }
                 commonEarliestTime[streamInfo.id].started = true;
@@ -777,9 +779,15 @@ function PlaybackController() {
     function applyServiceDescription(streamInfo, mediaInfo) {
         if (streamInfo && streamInfo.manifestInfo && streamInfo.manifestInfo.serviceDescriptions) {
             // is there a service description for low latency defined?
-            const llsd = streamInfo.manifestInfo.serviceDescriptions.find((sd) => {
-                return sd.schemeIdUri === Constants.SERVICE_DESCRIPTION_LL_SCHEME;
-            });
+            let llsd;
+
+            for (let i = 0; i < streamInfo.manifestInfo.serviceDescriptions.length; i++) {
+                const sd = streamInfo.manifestInfo.serviceDescriptions[i];
+                if (sd.schemeIdUri === Constants.SERVICE_DESCRIPTION_LL_SCHEME) {
+                    llsd = sd;
+                    break;
+                }
+            }
 
             if (llsd) {
                 if (mediaInfo && mediaInfo.supplementalProperties &&
