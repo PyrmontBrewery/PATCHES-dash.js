@@ -12,7 +12,7 @@ To run the tests you have to serve a web application that is able to run the das
 This web application must declare the video element and the dash.js MediaPlayer instance, respectively with the ids ```'video'``` and ```'player'```.
 
 ## Tests scripts
-The folder ```tests``` contains the different functional tests suites for testing each functionnality/scenario.
+The folder ```tests/functional``` contains the different functional tests suites for testing each functionality/scenario.
 For example the suites in file ```test/play.js``` are used to test the ability to play a stream.
 
 When writing a functional test, instead of executing application code directly, we do use the Leadfoot Command object, provided by the Intern framework, to automate interactions to test the application (see https://theintern.github.io/leadfoot/module-leadfoot_Command.html).
@@ -33,7 +33,14 @@ In ```config``` folder, you will multiple configurations files that are used by 
 In ```selenium``` folder, the following web drivers are available:
 - Chrome
 - Firefox
-- Edge
+- Chromium Edge
+
+#### Legacy Edge
+Download the matching Edge driver (MicrosoftWebDriver) from https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/
+
+For Edge version <=17 you need to adjust the "Dwebdriver.edge.driver" property in startClient.bat. 
+
+For Version 18 and 19 follow the instructions in the link above and remove the "Dwebdriver.edge.driver" property and the MicrosoftWebDriver.exe in the selenium folder.
 
 #### Launch the tests
 1. Start selenium hub. Open a new terminal and launch the command:
@@ -88,7 +95,7 @@ node node_modules/intern/runner.js config=test/functional/config.js os=windows b
 ```
 - run all tests on stream "VOD (Static MPD) / SegmentBase, ondemand profile"
 ```sh
-node node_modules/intern/runner.js config=test/functional/config.js os=windows browsers=chrome stream=\"VOD (Static MPD) / SegmentBase, ondemand profile\"
+node node_modules/intern/runner.js config=test/functional/config.js os=windows browsers=chrome stream="VOD (Static MPD) / SegmentBase, ondemand profile"
 ```
 
 
@@ -105,13 +112,13 @@ Make sure installation path is available in PATH variable.
 #### Launch the tests
 1. Start selenium hub. Open a new terminal and launch the command :
 ```sh
-cd test/functional/tools
+cd test/functional/selenium
 java -jar selenium-server-standalone-3.4.0.jar -role hub
 ```
 
 2. Start selenium node. Open a new terminal and launch the command :
 ```sh
-cd test/functional/tools
+cd test/functional/selenium
 java -jar selenium-server-standalone-3.4.0.jar -role node
 ```
 3. Start Intern runner. Open a new terminal and launch the command:
@@ -122,3 +129,12 @@ cd test/functional
 
 As for Windows, the script can be modified to setup the tests.
 
+#### Troubleshooting
+Question: The localhost:3000 webserver is not available and all tests fail.  
+Answer: A local webserver needs to run on port 3000. In order to launch a debug server launch the following command in the root folder of the project:
+```
+npm run dev
+```
+
+Question: The webserver responds with "cannot establish a secure connection"  
+Answer: You need to install a local certificate to run the tests under https. Or you set the protocol to http as described above.

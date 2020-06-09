@@ -1,12 +1,19 @@
 import ThumbnailController from '../../src/streaming/thumbnail/ThumbnailController';
 import ThumbnailTracks from '../../src/streaming/thumbnail/ThumbnailTracks';
+import DashConstants from '../../src/dash/constants/DashConstants';
+import Events from '../../src/core/events/Events';
+import EventBus from '../../src/core/EventBus';
+import Debug from '../../src/core/Debug';
 
 import ObjectsHelper from './helpers/ObjectsHelper';
 import AdapterMock from './mocks/AdapterMock';
-import StreamMock from './mocks/StreamMock';
 
 const expect = require('chai').expect;
 const context = {};
+
+const streamInfo = {
+    id: 'id'
+};
 
 const sampleRepresentation = {
     id: 'rep_id',
@@ -64,9 +71,13 @@ describe('Thumbnails', function () {
 
         beforeEach(function () {
             thumbnailController = ThumbnailController(context).create({
+                streamInfo: streamInfo,
                 adapter: adapter,
                 baseURLController: objectsHelper.getDummyBaseURLController(),
-                stream: new StreamMock()
+                debug: Debug(context).getInstance(),
+                eventBus: EventBus(context).getInstance(),
+                events: Events,
+                dashConstants: DashConstants
             });
         });
 
@@ -90,9 +101,13 @@ describe('Thumbnails', function () {
         beforeEach(function () {
             adapter.setRepresentation(sampleRepresentation);
             thumbnailController = ThumbnailController(context).create({
+                streamInfo: streamInfo,
                 adapter: adapter,
                 baseURLController: objectsHelper.getDummyBaseURLController(),
-                stream: new StreamMock()
+                debug: Debug(context).getInstance(),
+                eventBus: EventBus(context).getInstance(),
+                events: Events,
+                dashConstants: DashConstants
             });
         });
 
@@ -161,9 +176,13 @@ describe('Thumbnails', function () {
         beforeEach(function () {
             adapter.setRepresentation(sampleRepresentation2);
             thumbnailController = ThumbnailController(context).create({
+                streamInfo: streamInfo,
                 adapter: adapter,
                 baseURLController: objectsHelper.getDummyBaseURLController(),
-                stream: new StreamMock()
+                debug: Debug(context).getInstance(),
+                eventBus: EventBus(context).getInstance(),
+                events: Events,
+                dashConstants: DashConstants
             });
         });
 
@@ -209,9 +228,13 @@ describe('Thumbnails', function () {
 
         beforeEach(function () {
             thumbnailTracks = ThumbnailTracks(context).create({
+                streamInfo: streamInfo,
                 adapter: adapter,
                 baseURLController: objectsHelper.getDummyBaseURLController(),
-                stream: new StreamMock()
+                debug: Debug(context).getInstance(),
+                eventBus: EventBus(context).getInstance(),
+                events: Events,
+                dashConstants: DashConstants
             });
         });
 
@@ -231,7 +254,10 @@ describe('Thumbnails', function () {
         });
 
         it('addTracks method doesn\'t add any track if config not set properly', function () {
-            thumbnailTracks = ThumbnailTracks(context).create({});
+            thumbnailTracks = ThumbnailTracks(context).create({debug: Debug(context).getInstance(),
+                                                            eventBus: EventBus(context).getInstance(),
+                                                            events: Events,
+                                                            dashConstants: DashConstants});
             thumbnailTracks.initialize();
             const tracks = thumbnailTracks.getTracks();
             expect(tracks).to.be.empty; // jshint ignore:line
@@ -301,14 +327,17 @@ describe('Thumbnails', function () {
     describe('CR URI schema', function () {
         const objectsHelper = new ObjectsHelper();
         const adapter = new AdapterMock();
-        let thumbnailController;
         let thumbnailTracks;
 
         beforeEach(function () {
             thumbnailTracks = ThumbnailTracks(context).create({
+                streamInfo: streamInfo,
                 adapter: adapter,
                 baseURLController: objectsHelper.getDummyBaseURLController(),
-                stream: new StreamMock()
+                debug: Debug(context).getInstance(),
+                eventBus: EventBus(context).getInstance(),
+                events: Events,
+                dashConstants: DashConstants
             });
         });
 
@@ -318,11 +347,6 @@ describe('Thumbnails', function () {
 
         it('should support CR URI schema', function () {
             adapter.setRepresentation(sampleRepresentation3);
-            thumbnailController = ThumbnailController(context).create({
-                adapter: new AdapterMock(),
-                baseURLController: objectsHelper.getDummyBaseURLController(),
-                stream: new StreamMock()
-            });
 
             thumbnailTracks.initialize();
             const tracks = thumbnailTracks.getTracks();
