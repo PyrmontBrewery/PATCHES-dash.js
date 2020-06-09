@@ -44,10 +44,10 @@ import InitCache from '../utils/InitCache';
 import URLUtils from '../utils/URLUtils';
 import MediaPlayerEvents from '../MediaPlayerEvents';
 import TimeSyncController from './TimeSyncController';
-import BaseURLController from './BaseURLController';
 import MediaSourceController from './MediaSourceController';
 import DashJSError from '../vo/DashJSError';
 import Errors from '../../core/errors/Errors';
+import EventController from './EventController';
 
 function StreamController() {
     // Check whether there is a gap every 40 wallClockUpdateEvent times
@@ -70,6 +70,7 @@ function StreamController() {
         baseURLController,
         abrController,
         mediaController,
+        eventController,
         textController,
         initCache,
         urlUtils,
@@ -89,8 +90,6 @@ function StreamController() {
         mediaPlayerModel,
         isPaused,
         initialPlayback,
-        videoTrackDetected,
-        audioTrackDetected,
         isPeriodSwitchInProgress,
         playbackEndedTimerId,
         prefetchTimerId,
@@ -105,7 +104,6 @@ function StreamController() {
     function setup() {
         logger = Debug(context).getInstance().getLogger(instance);
         timeSyncController = TimeSyncController(context).getInstance();
-        baseURLController = BaseURLController(context).getInstance();
         mediaSourceController = MediaSourceController(context).getInstance();
         initCache = InitCache(context).getInstance();
         urlUtils = URLUtils(context).getInstance();
@@ -130,9 +128,12 @@ function StreamController() {
         });
         manifestUpdater.initialize();
 
-        baseURLController.setConfig({
-            adapter: adapter
+        eventController = EventController(context).getInstance();
+        eventController.setConfig({
+            manifestUpdater: manifestUpdater,
+            playbackController: playbackController
         });
+        eventController.start();
 
         registerEvents();
     }
@@ -174,7 +175,7 @@ function StreamController() {
      * Used to determine the time current stream is finished and we should switch to the next stream.
      */
     function onPlaybackTimeUpdated(/*e*/) {
-        if (isTrackTypePresent(Constants.VIDEO)) {
+        if (hasVideoTrack()) {
             const playbackQuality = videoModel.getPlaybackQuality();
             if (playbackQuality) {
                 dashMetrics.addDroppedFrames(playbackQuality);
@@ -208,7 +209,7 @@ function StreamController() {
 
         // Find out what is the right time position to jump to taking
         // into account state of buffer
-        for (let i = 0; i < streamProcessors.length; i ++) {
+        for (let i = 0; i < streamProcessors.length; i++) {
             const mediaBuffer = streamProcessors[i].getBuffer();
             const ranges = mediaBuffer.getAllBufferRanges();
             let nextRangeStartTime;
@@ -262,7 +263,7 @@ function StreamController() {
             stopPreloadTimer();
         }
 
-        if ( seekingStream === activeStream && preloading ) {
+        if (seekingStream === activeStream && preloading) {
             // Seeking to the current period was requested while preloading the next one, deactivate preloading one
             preloading.deactivate(true);
         }
@@ -278,7 +279,7 @@ function StreamController() {
         createPlaylistMetrics(PlayList.SEEK_START_REASON);
     }
 
-    function onPlaybackStarted( /*e*/ ) {
+    function onPlaybackStarted( /*e*/) {
         logger.debug('[onPlaybackStarted]');
         if (initialPlayback) {
             initialPlayback = false;
@@ -324,9 +325,11 @@ function StreamController() {
                 const delayPlaybackEnded = timeToEnd > 0 ? timeToEnd * 1000 : 0;
                 const prefetchDelay = delayPlaybackEnded < PERIOD_PREFETCH_TIME ? delayPlaybackEnded / 4 : delayPlaybackEnded - PERIOD_PREFETCH_TIME;
                 logger.debug('[toggleEndPeriodTimer] Going to fire preload in', prefetchDelay, 'milliseconds');
-                prefetchTimerId = setTimeout(onStreamCanLoadNext,  prefetchDelay);
-                logger.debug('[toggleEndPeriodTimer] start-up of timer to notify PLAYBACK_ENDED event. It will be triggered in',delayPlaybackEnded, 'milliseconds');
-                playbackEndedTimerId = setTimeout(function () {eventBus.trigger(Events.PLAYBACK_ENDED, {'isLast': getActiveStreamInfo().isLast});}, delayPlaybackEnded);
+                prefetchTimerId = setTimeout(onStreamCanLoadNext, prefetchDelay);
+                logger.debug('[toggleEndPeriodTimer] start-up of timer to notify PLAYBACK_ENDED event. It will be triggered in', delayPlaybackEnded, 'milliseconds');
+                playbackEndedTimerId = setTimeout(function () {
+                    eventBus.trigger(Events.PLAYBACK_ENDED, {'isLast': getActiveStreamInfo().isLast});
+                }, delayPlaybackEnded);
             }
         }
     }
@@ -334,16 +337,11 @@ function StreamController() {
     function onTrackBufferingCompleted(e) {
         // In multiperiod situations, as soon as one of the tracks (AUDIO, VIDEO) is finished we should
         // start doing prefetching of the next period
-        if (!e.sender) {
-            return;
-        }
-        if (e.sender.getType() !== Constants.AUDIO && e.sender.getType() !== Constants.VIDEO) {
-            return;
-        }
+        if (e.mediaType !== Constants.AUDIO && e.mediaType !== Constants.VIDEO) return;
 
         const isLast = getActiveStreamInfo().isLast;
         if (mediaSource && !isLast && playbackEndedTimerId === undefined) {
-            logger.info('[onTrackBufferingCompleted] end of period detected. Track', e.sender.getType(), 'has finished');
+            logger.info('[onTrackBufferingCompleted] end of period detected. Track', e.mediaType, 'has finished');
             isPeriodSwitchInProgress = true;
             if (isPaused === false) {
                 toggleEndPeriodTimer();
@@ -373,7 +371,6 @@ function StreamController() {
 
             if (useSmoothPeriodTransition) {
                 logger.info('[onStreamCanLoadNext] Preloading next stream');
-                activeStream.stopEventController();
                 activeStream.deactivate(true);
                 newStream.preload(mediaSource, buffers);
                 preloading = newStream;
@@ -449,11 +446,8 @@ function StreamController() {
     function onEnded() {
         const nextStream = getNextStream();
         if (nextStream) {
-            audioTrackDetected = undefined;
-            videoTrackDetected = undefined;
             switchStream(activeStream, nextStream, NaN);
-        }
-        else {
+        } else {
             logger.debug('StreamController no next stream found');
         }
         flushPlaylistMetrics(nextStream ? PlayListTrace.END_OF_PERIOD_STOP_REASON : PlayListTrace.END_OF_CONTENT_STOP_REASON);
@@ -483,7 +477,6 @@ function StreamController() {
 
         useSmoothPeriodTransition = false;
         if (oldStream) {
-            oldStream.stopEventController();
             useSmoothPeriodTransition = (activeStream.isProtectionCompatible(newStream) &&
                 (supportsChangeType || activeStream.isMediaCodecCompatible(newStream))) &&
                 !seekTime || newStream.getPreloaded();
@@ -560,8 +553,6 @@ function StreamController() {
 
     function activateStream(seekTime, keepBuffers) {
         buffers = activeStream.activate(mediaSource, keepBuffers ? buffers : undefined);
-        audioTrackDetected = checkTrackPresence(Constants.AUDIO);
-        videoTrackDetected = checkTrackPresence(Constants.VIDEO);
 
         // check if change type is supported by the browser
         if (buffers) {
@@ -585,7 +576,6 @@ function StreamController() {
             }
         }
 
-        activeStream.startEventController();
         if (autoPlay || !initialPlayback) {
             playbackController.play();
         }
@@ -644,10 +634,10 @@ function StreamController() {
                         baseURLController: baseURLController,
                         abrController: abrController,
                         playbackController: playbackController,
+                        eventController: eventController,
                         mediaController: mediaController,
                         textController: textController,
                         videoModel: videoModel,
-                        streamController: instance,
                         settings: settings
                     });
                     streams.push(stream);
@@ -667,6 +657,15 @@ function StreamController() {
                     const initialTime = !isNaN(startTimeFormUriParameters.fragS) ? startTimeFormUriParameters.fragS : startTimeFormUriParameters.fragT;
                     initialStream = getStreamForTime(initialTime);
                 }
+                // For multiperiod streams we should avoid a switch of streams after the seek to the live edge. So we do a calculation of the expected seek time to find the right stream object.
+                if (!initialStream && adapter.getIsDynamic() && streams.length) {
+                    logger.debug('Dynamic multi-period stream: Trying to find the correct starting period');
+                    const manifestInfo = adapter.getStreamsInfo(undefined, 1)[0].manifestInfo;
+                    const liveEdge = timelineConverter.calcPresentationTimeFromWallTime(new Date(), adapter.getRegularPeriods()[0]);
+                    const targetDelay = playbackController.computeLiveDelay(NaN, manifestInfo.DVRWindowSize, manifestInfo.minBufferTime);
+                    const targetTime = liveEdge - targetDelay;
+                    initialStream = getStreamForTime(targetTime);
+                }
                 switchStream(null, initialStream !== null ? initialStream : streams[0], NaN);
             }
 
@@ -679,7 +678,7 @@ function StreamController() {
         }
     }
 
-    function onTimeSyncCompleted( /*e*/ ) {
+    function onTimeSyncCompleted( /*e*/) {
         const manifest = manifestModel.getValue();
         //TODO check if we can move this to initialize??
         if (protectionController) {
@@ -713,7 +712,7 @@ function StreamController() {
                 useCalculatedLiveEdgeTime = adapter.getUseCalculatedLiveEdgeTimeForMediaInfo(mediaInfo);
                 if (useCalculatedLiveEdgeTime) {
                     logger.debug('SegmentTimeline detected using calculated Live Edge Time');
-                    const s = { streaming: { useManifestDateHeaderTimeSource: false } };
+                    const s = {streaming: {useManifestDateHeaderTimeSource: false}};
                     settings.update(s);
                 }
             }
@@ -743,42 +742,19 @@ function StreamController() {
         }
     }
 
-    function isTrackTypePresent(trackType) {
-        let isTrackTypeDetected;
-
-        if (!trackType) {
-            return isTrackTypeDetected;
-        }
-
-        switch (trackType) {
-            case Constants.VIDEO :
-                isTrackTypeDetected = videoTrackDetected;
-                break;
-            case Constants.AUDIO :
-                isTrackTypeDetected = audioTrackDetected;
-                break;
-        }
-        return isTrackTypeDetected;
+    function hasVideoTrack() {
+        return activeStream ? activeStream.getHasVideoTrack() : false;
     }
 
-    function checkTrackPresence(type) {
-        let isDetected = false;
-        getActiveStreamProcessors().forEach(p => {
-            if (p.getMediaInfo().type === type) {
-                isDetected = true;
-            }
-        });
-        return isDetected;
+    function hasAudioTrack() {
+        return activeStream ? activeStream.getHasAudioTrack() : false;
     }
 
     function flushPlaylistMetrics(reason, time) {
         time = time || new Date();
 
         getActiveStreamProcessors().forEach(p => {
-            const ctrlr = p.getScheduleController();
-            if (ctrlr) {
-                ctrlr.finalisePlayList(time, reason);
-            }
+            p.finalisePlayList(time, reason);
         });
         dashMetrics.addPlayList();
     }
@@ -919,6 +895,9 @@ function StreamController() {
         if (config.settings) {
             settings = config.settings;
         }
+        if (config.baseURLController) {
+            baseURLController = config.baseURLController;
+        }
     }
 
     function setProtectionData(protData) {
@@ -933,8 +912,6 @@ function StreamController() {
         activeStream = null;
         hasMediaError = false;
         hasInitialisationError = false;
-        videoTrackDetected = undefined;
-        audioTrackDetected = undefined;
         initialPlayback = true;
         isPaused = false;
         autoPlay = true;
@@ -950,8 +927,8 @@ function StreamController() {
 
         flushPlaylistMetrics(
             hasMediaError || hasInitialisationError ?
-            PlayListTrace.FAILURE_STOP_REASON :
-            PlayListTrace.USER_REQUEST_STOP_REASON
+                PlayListTrace.FAILURE_STOP_REASON :
+                PlayListTrace.USER_REQUEST_STOP_REASON
         );
 
         for (let i = 0, ln = streams ? streams.length : 0; i < ln; i++) {
@@ -963,6 +940,7 @@ function StreamController() {
 
         baseURLController.reset();
         manifestUpdater.reset();
+        eventController.reset();
         dashMetrics.clearAllCurrentMetrics();
         manifestModel.setValue(null);
         manifestLoader.reset();
@@ -993,7 +971,8 @@ function StreamController() {
         if (e.metric === MetricsConstants.DVR_INFO) {
             //Match media type? How can DVR window be different for media types?
             //Should we normalize and union the two?
-            if (e.mediaType === Constants.AUDIO) {
+            const targetMediaType = hasAudioTrack() ? Constants.AUDIO : Constants.VIDEO;
+            if (e.mediaType === targetMediaType) {
                 mediaSourceController.setSeekable(mediaSource, e.value.range.start, e.value.range.end);
             }
         }
@@ -1002,7 +981,8 @@ function StreamController() {
     instance = {
         initialize: initialize,
         getActiveStreamInfo: getActiveStreamInfo,
-        isTrackTypePresent: isTrackTypePresent,
+        hasVideoTrack: hasVideoTrack,
+        hasAudioTrack: hasAudioTrack,
         switchToVideoElement: switchToVideoElement,
         getStreamById: getStreamById,
         getStreamForTime: getStreamForTime,
